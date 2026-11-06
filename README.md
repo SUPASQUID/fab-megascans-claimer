@@ -1,6 +1,6 @@
 # Fab Megascans Free Claimer
 
-A browser-console script that automatically adds every **free** asset from the "megascans" search on [Fab](https://www.fab.com) to your library.
+A browser-console script that automatically adds every **free** asset from the **Quixel Megascans** publisher on [Fab](https://www.fab.com) to your library.
 
 Quixel Bridge has been replaced by Fab, so older scripts targeting `quixel.com` no longer work. This one uses Fab's current API.
 
@@ -10,7 +10,7 @@ Quixel Bridge has been replaced by Fab, so older scripts targeting `quixel.com` 
 
 1. Log in on [fab.com](https://www.fab.com).
 2. Manually claim **one** free asset first (this accepts the terms; otherwise you get a `401` error).
-3. Open the [free Megascans search](https://www.fab.com/search?is_free=1&q=megascans).
+3. Open the [free Quixel Megascans listing](https://www.fab.com/search?is_free=1&sellers=o-cbf5bbfdb340d6a839b5520cb31328).
 4. Press `F12` and open the **Console** tab.
 5. Copy the whole content of [`fab-megascans-free-claim.js`](fab-megascans-free-claim.js), paste it, and press `Enter`.
 
@@ -23,7 +23,7 @@ At the top of the file:
 | Constant | Default | Description |
 |---|---|---|
 | `DRY_RUN` | `false` | `true` = only list assets, claim nothing |
-| `QUERY` | `"megascans"` | Search keyword |
+| `SELLER_ID` | `"o-cbf5…"` | Fab publisher ID (Quixel Megascans) |
 | `WAIT_BETWEEN_PAGES` | `3000` | Pause between pages (ms) |
 | `WAIT_BETWEEN_CLAIMS` | `400` | Pause between assets (ms) |
 | `MAX_ERRORS_IN_ROW` | `8` | Stop after N consecutive errors |
@@ -32,7 +32,7 @@ To stop mid-run: `window.__stopClaim = true`.
 
 ## How it works
 
-- `GET /i/listings/search?is_free=1&q=megascans` walks through the results (cursor pagination).
+- `GET /i/listings/search?is_free=1&sellers=<publisher id>` walks through the results (cursor pagination).
 - `GET /i/listings/{uid}` finds the free offer of each asset.
 - `POST /i/listings/{uid}/add-to-library` adds it, using your `fab_csrftoken` cookie.
 - Already-owned or non-free assets are skipped. The script stops on a `401`, a rate limit (`429`/`403`) or repeated errors. Run it again later: assets you already have are ignored.

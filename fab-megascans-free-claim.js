@@ -1,10 +1,10 @@
 /*
- * Fab.com - adds every FREE asset from the "megascans" search to your library.
+ * Fab.com - adds every FREE asset from the "Quixel Megascans" publisher to your library.
  *
  * Usage:
  *   1. Log in on https://www.fab.com
  *   2. Manually claim ONE free asset first (accepts the terms, otherwise you get a 401)
- *   3. Open https://www.fab.com/search?is_free=1&q=megascans  (F12 -> Console)
+ *   3. Open https://www.fab.com/search?is_free=1&sellers=o-cbf5bbfdb340d6a839b5520cb31328  (F12 -> Console)
  *   4. Paste this whole file + Enter.
  *
  * Set DRY_RUN = true to only list assets without claiming anything.
@@ -12,7 +12,7 @@
  */
 (async () => {
   const DRY_RUN = false;
-  const QUERY = "megascans";
+  const SELLER_ID = "o-cbf5bbfdb340d6a839b5520cb31328"; // publisher "Quixel Megascans"
   const WAIT_BETWEEN_PAGES = 3000;   // ms
   const WAIT_BETWEEN_CLAIMS = 400;   // ms (sequential = safer against rate limits)
   const MAX_ERRORS_IN_ROW = 8;
@@ -81,7 +81,7 @@
   let cursor = null;
   let page = 0;
   while (!window.__stopClaim) {
-    const qs = new URLSearchParams({ is_free: "1", q: QUERY, sort_by: "-firstPublishedAt" });
+    const qs = new URLSearchParams({ is_free: "1", sellers: SELLER_ID, sort_by: "-firstPublishedAt" });
     if (cursor) qs.set("cursor", cursor);
     const { res, body } = await getJson(`${BASE}/search?${qs}`);
     if (!res.ok) { console.error("Search failed", res.status, body); break; }
