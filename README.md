@@ -28,7 +28,18 @@ At the top of the file:
 | `WAIT_BETWEEN_CLAIMS` | `400` | Pause between assets (ms) |
 | `MAX_ERRORS_IN_ROW` | `8` | Stop after N consecutive errors |
 
-To stop mid-run: `window.__stopClaim = true`.
+
+## Stopping the script
+
+- **Clean stop:** type this in the same console and press `Enter`. The script finishes the asset in progress, then prints a summary:
+
+  ```js
+  window.__stopClaim = true
+  ```
+
+- **Instant stop:** reload the page (`F5`) or close the tab.
+
+Nothing is lost when you stop: run the script again later and assets already in your library are skipped. IDs of assets that failed are kept in `window.__failed`.
 
 ## How it works
 
