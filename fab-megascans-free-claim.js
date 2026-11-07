@@ -110,10 +110,32 @@
     }
   }
 
+  // Asks Fab which of these listings are already in your library (one request per page).
+  // Response shape can vary, so we accept an array or an object keyed by uid.
+  let statesLogged = false;
+  async function fetchOwned(items) {
+    const owned = new Set();
+    try {
+      const qs = new URLSearchParams();
+      items.forEach((it) => qs.append("listing_ids", it.uid));
+      const { res, body } = await getJson(`https://www.fab.com/i/users/me/listings-states?${qs}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!statesLogged) { statesLogged = true; console.log("ℹ️ ownership check sample:", JSON.stringify(body).slice(0, 300)); }
+      const list = Array.isArray(body) ? body : Object.entries(body || {}).map(([uid, v]) => ({ uid, ...v }));
+      for (const st of list) if (st.acquired || st.isAcquired || st.owned) owned.add(st.uid || st.listingUid);
+    } catch (e) {
+      if (!statesLogged) { statesLogged = true; console.warn(`Ownership check unavailable (${e.message}), falling back to per-asset check.`); }
+    }
+    return owned;
+  }
+
   // Claims a page of items with CONCURRENCY workers.
   async function processItems(items) {
-    const queue = items.filter((it) => !seenUids.has(it.uid));
-    queue.forEach((it) => { seenUids.add(it.uid); stats.seen++; });
+    const fresh = items.filter((it) => !seenUids.has(it.uid));
+    fresh.forEach((it) => { seenUids.add(it.uid); stats.seen++; });
+    const ownedNow = await fetchOwned(fresh);
+    stats.owned += fresh.filter((it) => ownedNow.has(it.uid)).length;
+    const queue = fresh.filter((it) => !ownedNow.has(it.uid)); // already in library: skip silently
     let i = 0;
     const worker = async () => {
       while (!window.__stopClaim && !fatal) {

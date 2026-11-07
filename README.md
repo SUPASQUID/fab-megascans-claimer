@@ -50,6 +50,7 @@ Nothing is lost when you stop: run the script again later and assets already in 
 - `GET /i/listings/search?is_free=1&sellers=<publisher id>` walks through the results (cursor pagination).
 - `GET /i/listings/{uid}` finds the free offer of each asset.
 - `POST /i/listings/{uid}/add-to-library` adds it, using your `fab_csrftoken` cookie.
+- Before claiming a page, it asks `GET /i/users/me/listings-states` which assets are already in your library and skips them silently, so only new assets are logged. If that call is unavailable it falls back to a per-asset check.
 - Already-owned or non-free assets are skipped. The script stops on a `401`, a rate limit (`429`/`403`) or repeated errors. Run it again later: assets you already have are ignored.
 
 ## Limitations
