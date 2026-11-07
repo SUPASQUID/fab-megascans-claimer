@@ -4,7 +4,7 @@ A browser-console script that automatically adds every **free** asset from the *
 
 Quixel Bridge has been replaced by Fab, so older scripts targeting `quixel.com` no longer work. This one uses Fab's current API.
 
-> ⚠️ Since 2025, most Megascans are no longer free. The script only claims the ones currently marked **free**.
+> Quixel Megascans listings are free on Fab. The script only claims listings marked **free** (`is_free=1`), so anything paid is skipped.
 
 ## Usage
 
