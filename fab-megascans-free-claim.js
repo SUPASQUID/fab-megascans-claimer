@@ -12,6 +12,7 @@
  */
 (async () => {
   const DRY_RUN = false;
+  const SORT_ORDERS = ["-firstPublishedAt", "firstPublishedAt"]; // newest first, then oldest first
   const SELLER_ID = "o-cbf5bbfdb340d6a839b5520cb31328"; // publisher "Quixel Megascans"
   const WAIT_BETWEEN_PAGES = 3000;   // ms
   const WAIT_BETWEEN_CLAIMS = 400;   // ms (sequential = safer against rate limits)
@@ -78,10 +79,16 @@
     throw new Error(`HTTP ${r.res.status} ${msg}`);
   }
 
+  // Fab's pagination can stop early, so we walk the list in several sort orders.
+  // Assets seen in a previous pass are skipped, so extra passes only cost a few requests.
+  for (const sort of SORT_ORDERS) {
+  if (window.__stopClaim) break;
+  console.log(`🔀 pass with sort_by=${sort}`);
   let cursor = null;
   let page = 0;
+  seenCursors.clear();
   while (!window.__stopClaim) {
-    const qs = new URLSearchParams({ is_free: "1", sellers: SELLER_ID, sort_by: "-firstPublishedAt" });
+    const qs = new URLSearchParams({ is_free: "1", sellers: SELLER_ID, sort_by: sort });
     if (cursor) qs.set("cursor", cursor);
     const { res, body } = await getJson(`${BASE}/search?${qs}`);
     if (!res.ok) { console.error("Search failed", res.status, body); break; }
@@ -96,8 +103,9 @@
       seenUids.add(it.uid);
       stats.seen++;
       try {
-        await claim(it);
+        const outcome = await claim(it);
         errorsInRow = 0;
+        if (outcome !== "added") continue; // no pause needed for owned/skipped assets
       } catch (e) {
         stats.failed++; failedIds.push(it.uid); errorsInRow++;
         console.warn(`❌ ${it.title || it.uid} : ${e.message}`);
@@ -114,6 +122,7 @@
     if (seenCursors.has(cursor)) { console.warn("Repeated cursor, stopping."); break; }
     seenCursors.add(cursor);
     await sleep(WAIT_BETWEEN_PAGES);
+  }
   }
 
   console.log("Done.");

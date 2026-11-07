@@ -24,6 +24,7 @@ At the top of the file:
 |---|---|---|
 | `DRY_RUN` | `false` | `true` = only list assets, claim nothing |
 | `SELLER_ID` | `"o-cbf5…"` | Fab publisher ID (Quixel Megascans) |
+| `SORT_ORDERS` | newest, then oldest | Sort orders to walk through (Fab's pagination can stop early, so a second pass catches missed assets) |
 | `WAIT_BETWEEN_PAGES` | `3000` | Pause between pages (ms) |
 | `WAIT_BETWEEN_CLAIMS` | `400` | Pause between assets (ms) |
 | `MAX_ERRORS_IN_ROW` | `8` | Stop after N consecutive errors |
