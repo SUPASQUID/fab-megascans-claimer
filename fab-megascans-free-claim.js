@@ -12,11 +12,14 @@
  */
 (async () => {
   const DRY_RUN = false;
-  const SORT_ORDERS = ["-firstPublishedAt", "firstPublishedAt"]; // newest first, then oldest first
   const SELLER_ID = "o-cbf5bbfdb340d6a839b5520cb31328"; // publisher "Quixel Megascans"
-  const WAIT_BETWEEN_PAGES = 3000;   // ms
-  const WAIT_BETWEEN_CLAIMS = 400;   // ms (sequential = safer against rate limits)
-  const MAX_ERRORS_IN_ROW = 8;
+  const SORT_ORDERS = ["-firstPublishedAt", "firstPublishedAt"]; // newest first, then oldest first
+  const CONCURRENCY = 8;             // assets claimed at the same time (1 = one by one)
+  const WAIT_BETWEEN_PAGES = 500;    // ms
+  const WAIT_BETWEEN_CLAIMS = 0;     // ms, per worker
+  const RATE_LIMIT_PAUSE = 60000;    // ms to wait when Fab answers 429/403
+  const MAX_RATE_LIMIT_PAUSES = 5;   // stop after this many pauses in a row
+  const MAX_ERRORS_IN_ROW = 15;
 
   const BASE = "https://www.fab.com/i/listings";
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -35,6 +38,12 @@
   const seenCursors = new Set();
   const seenUids = new Set();
   let errorsInRow = 0;
+  let rateLimitPauses = 0;
+  let pausedUntil = 0;
+  let fatal = null;
+
+  class RateLimit extends Error {}
+  class Fatal extends Error {}
 
   async function getJson(url, opts = {}) {
     const res = await fetch(url, { credentials: "include", headers: headers(), ...opts });
@@ -53,17 +62,18 @@
     return price(best) === 0 ? best.offerId : null;
   }
 
-  async function claim(item) {
+  async function claimOnce(item) {
     const uid = item.uid;
     const title = item.title || uid;
 
     // Fetch details to get licenses / offerId
     const d = await getJson(`${BASE}/${uid}`);
+    if (d.res.status === 429 || d.res.status === 403) throw new RateLimit(`HTTP ${d.res.status}`);
     if (!d.res.ok) throw new Error(`detail HTTP ${d.res.status}`);
     if (d.body?.isOwned || d.body?.acquired) { stats.owned++; return "owned"; }
 
     const offerId = pickFreeOffer(d.body || {});
-    if (!offerId) { stats.skipped++; console.log(`⏭  not free : ${title}`); return "skipped"; }
+    if (!offerId) { stats.skipped++; console.log(`⏭  not free: ${title}`); return "skipped"; }
 
     if (DRY_RUN) { console.log(`[dry] ${title}`); return "dry"; }
 
@@ -74,58 +84,86 @@
 
     const msg = JSON.stringify(r.body || {}).slice(0, 160);
     if (/already/i.test(msg)) { stats.owned++; return "owned"; }
-    if (r.res.status === 401) throw new Error("401: accept the terms by claiming 1 asset manually, then rerun.");
-    if (r.res.status === 429 || r.res.status === 403) throw new Error(`rate limit (${r.res.status}): wait 15-20 min.`);
+    if (r.res.status === 401) throw new Fatal("401: accept the terms by claiming 1 asset manually, then rerun.");
+    if (r.res.status === 429 || r.res.status === 403) throw new RateLimit(`HTTP ${r.res.status}`);
     throw new Error(`HTTP ${r.res.status} ${msg}`);
+  }
+
+  // Retries after a pause when rate-limited (all workers wait together).
+  async function claim(item) {
+    for (;;) {
+      const wait = pausedUntil - Date.now();
+      if (wait > 0) await sleep(wait);
+      if (window.__stopClaim || fatal) return "stopped";
+      try {
+        const out = await claimOnce(item);
+        rateLimitPauses = 0;
+        return out;
+      } catch (e) {
+        if (!(e instanceof RateLimit)) throw e;
+        if (Date.now() < pausedUntil) continue; // another worker already triggered the pause
+        rateLimitPauses++;
+        if (rateLimitPauses > MAX_RATE_LIMIT_PAUSES) throw new Fatal("Rate limited too many times. Wait 15-20 min and rerun.");
+        pausedUntil = Date.now() + RATE_LIMIT_PAUSE;
+        console.warn(`⏸  Rate limited (${e.message}). Pausing ${RATE_LIMIT_PAUSE / 1000}s (${rateLimitPauses}/${MAX_RATE_LIMIT_PAUSES})...`);
+      }
+    }
+  }
+
+  // Claims a page of items with CONCURRENCY workers.
+  async function processItems(items) {
+    const queue = items.filter((it) => !seenUids.has(it.uid));
+    queue.forEach((it) => { seenUids.add(it.uid); stats.seen++; });
+    let i = 0;
+    const worker = async () => {
+      while (!window.__stopClaim && !fatal) {
+        const it = queue[i++];
+        if (!it) return;
+        try {
+          const outcome = await claim(it);
+          errorsInRow = 0;
+          if (outcome !== "added") continue; // no pause needed for owned/skipped assets
+        } catch (e) {
+          if (e instanceof Fatal) { fatal = e; return; }
+          stats.failed++; failedIds.push(it.uid); errorsInRow++;
+          console.warn(`❌ ${it.title || it.uid}: ${e.message}`);
+          if (errorsInRow >= MAX_ERRORS_IN_ROW) { fatal = new Fatal("Too many errors in a row."); return; }
+        }
+        if (WAIT_BETWEEN_CLAIMS) await sleep(WAIT_BETWEEN_CLAIMS);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker));
   }
 
   // Fab's pagination can stop early, so we walk the list in several sort orders.
   // Assets seen in a previous pass are skipped, so extra passes only cost a few requests.
   for (const sort of SORT_ORDERS) {
-  if (window.__stopClaim) break;
-  console.log(`🔀 pass with sort_by=${sort}`);
-  let cursor = null;
-  let page = 0;
-  seenCursors.clear();
-  while (!window.__stopClaim) {
-    const qs = new URLSearchParams({ is_free: "1", sellers: SELLER_ID, sort_by: sort });
-    if (cursor) qs.set("cursor", cursor);
-    const { res, body } = await getJson(`${BASE}/search?${qs}`);
-    if (!res.ok) { console.error("Search failed", res.status, body); break; }
+    if (window.__stopClaim || fatal) break;
+    console.log(`🔀 pass with sort_by=${sort}`);
+    let cursor = null;
+    let page = 0;
+    seenCursors.clear();
+    while (!window.__stopClaim && !fatal) {
+      const qs = new URLSearchParams({ is_free: "1", sellers: SELLER_ID, sort_by: sort });
+      if (cursor) qs.set("cursor", cursor);
+      const { res, body } = await getJson(`${BASE}/search?${qs}`);
+      if (!res.ok) { console.error("Search failed", res.status, body); break; }
 
-    const items = body.results || [];
-    page++;
-    console.log(`📄 page ${page}: ${items.length} results`);
+      const items = body.results || [];
+      page++;
+      console.log(`📄 page ${page}: ${items.length} results`);
+      await processItems(items);
 
-    for (const it of items) {
-      if (window.__stopClaim) break;
-      if (seenUids.has(it.uid)) continue;
-      seenUids.add(it.uid);
-      stats.seen++;
-      try {
-        const outcome = await claim(it);
-        errorsInRow = 0;
-        if (outcome !== "added") continue; // no pause needed for owned/skipped assets
-      } catch (e) {
-        stats.failed++; failedIds.push(it.uid); errorsInRow++;
-        console.warn(`❌ ${it.title || it.uid} : ${e.message}`);
-        if (/401|rate limit/.test(e.message) || errorsInRow >= MAX_ERRORS_IN_ROW) {
-          console.error("Stopped (too many errors / rate limit). Rerun later: already-owned assets are skipped.");
-          console.table(stats); window.__failed = failedIds; return;
-        }
-      }
-      await sleep(WAIT_BETWEEN_CLAIMS);
+      cursor = body.cursors?.next;
+      if (!cursor) break;
+      if (seenCursors.has(cursor)) { console.warn("Repeated cursor, stopping."); break; }
+      seenCursors.add(cursor);
+      await sleep(WAIT_BETWEEN_PAGES);
     }
-
-    cursor = body.cursors?.next;
-    if (!cursor) break;
-    if (seenCursors.has(cursor)) { console.warn("Repeated cursor, stopping."); break; }
-    seenCursors.add(cursor);
-    await sleep(WAIT_BETWEEN_PAGES);
-  }
   }
 
-  console.log("Done.");
+  if (fatal) console.error(`Stopped: ${fatal.message} Rerun later: already-owned assets are skipped.`);
+  else console.log("Done.");
   console.table(stats);
   window.__failed = failedIds;
 })();

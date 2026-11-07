@@ -25,9 +25,12 @@ At the top of the file:
 | `DRY_RUN` | `false` | `true` = only list assets, claim nothing |
 | `SELLER_ID` | `"o-cbf5…"` | Fab publisher ID (Quixel Megascans) |
 | `SORT_ORDERS` | newest, then oldest | Sort orders to walk through (Fab's pagination can stop early, so a second pass catches missed assets) |
-| `WAIT_BETWEEN_PAGES` | `3000` | Pause between pages (ms) |
-| `WAIT_BETWEEN_CLAIMS` | `400` | Pause between assets (ms) |
-| `MAX_ERRORS_IN_ROW` | `8` | Stop after N consecutive errors |
+| `CONCURRENCY` | `8` | Assets claimed at the same time (`1` = one by one, safest) |
+| `WAIT_BETWEEN_PAGES` | `500` | Pause between pages (ms) |
+| `WAIT_BETWEEN_CLAIMS` | `0` | Pause between assets, per worker (ms) |
+| `RATE_LIMIT_PAUSE` | `60000` | Automatic pause when Fab answers `429`/`403` (ms) |
+| `MAX_RATE_LIMIT_PAUSES` | `5` | Stop after N rate-limit pauses in a row |
+| `MAX_ERRORS_IN_ROW` | `15` | Stop after N consecutive errors |
 
 
 ## Stopping the script
